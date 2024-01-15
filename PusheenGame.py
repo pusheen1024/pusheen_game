@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import pygame
 
-from crop_pusheen import crop_pusheen
+# from crop_pusheen import crop_pusheen
 
 
 pastel_colors = [(233, 173, 216), (227, 207, 255), (164, 235, 251),
@@ -600,7 +600,7 @@ def login_screen():
     green_pusheen = Button(offset + (CELLWIDTH + dx) * 2, 370, CELLWIDTH, CELLHEIGHT,
                            'pusheen_green_1.png', 'pusheen_green_2.png', group=PUSHEENRADIOGROUP)
     ok_button = Button((WIDTH - 100) // 2, 520, 100, 100, 'ok.png', 'ok.png')
-    input_field = InputField((227, 207, 255), (157, 135, 183), 550, 220, 600, 30)
+    input_field = InputField((227, 207, 255), (157, 135, 183), (WIDTH - 30) // 2, 220, 550, 30)
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
