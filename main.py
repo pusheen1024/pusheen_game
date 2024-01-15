@@ -4,25 +4,21 @@ import random
 import sqlite3
 from math import ceil
 from datetime import datetime, timedelta
+
 import pygame
-# from PIL import Image
+
+from crop_pusheen import crop_pusheen
 
 
-# salmon, coral, gold, springgreen, cyan, royalblue, mediumpurple, purple, lavender, hotpink, pink, violet
-pastel_colors = [(250, 128, 114), (255, 127, 80), (255, 215, 0), (0, 255, 127),
-                 (0, 255, 255), (65, 105, 225), (147, 112, 219), (128, 0, 128),
-                 (230, 230, 250), (255, 105, 180), (255, 192, 203), (238, 130, 238)]
-
-
-def is_inside(x, y):
-    return 0 <= x < WIDTH and 0 <= y < HEIGHT
+pastel_colors = [(233, 173, 216), (227, 207, 255), (164, 235, 251),
+                 (239, 179, 191), (246, 174, 9), (0, 255, 255), (187, 255, 205)]
 
 
 def load_image(name):
     fullname = os.path.join('data', name)
     if not os.path.isfile(fullname):
         print(f"Файл с изображением '{fullname}' не найден")
-        sys.exit()
+        terminate()
     image = pygame.image.load(fullname)
     return image
 
@@ -31,7 +27,7 @@ def load_level(name):
     fullname = os.path.join('data', name)
     if not os.path.isfile(fullname):
         print(f"Файл уровня '{fullname}' не найден")
-        sys.exit()
+        terminate()
     with open(fullname, 'r') as mapFile:
         level_map = [line.strip() for line in mapFile]
         level_height = len(level_map)
@@ -39,21 +35,21 @@ def load_level(name):
     return level_map, level_width, level_height
 
 
-def crop_pusheen():
-    for name in ['pusheen_gray_1.png', 'pusheen_gray_2.png', 'pusheen_pink_1.png',
-                 'pusheen_pink_2.png', 'pusheen_green_1.png', 'pusheen_green_2.png']:
-        fullname = os.path.join('data', name)
-        if not os.path.isfile(fullname):
-            print(f"Файл с изображением '{fullname}' не найден")
-            sys.exit()
-        image = Image.open(fullname)
-        image = image.crop((450, 685, 2505, 1900))
-        image.save(fullname)
-
-
-def terminate():
-    pygame.quit()
-    sys.exit()
+def generate_level(level):
+    pusheen_x, pusheen_y = None, None
+    for y in range(len(level)):
+        for x in range(len(level[y])):
+            if level[y][x] == '#':
+                Tile('ground', x, y)
+            elif level[y][x] == '_':
+                Tile('sofa', x, y)
+            elif level[y][x] == '0':
+                Tile('donut', x, y)
+            elif level[y][x] == ']':
+                Tile('door', x, y)
+            elif level[y][x] == '@':
+                pusheen_x, pusheen_y = x, y
+    return pusheen_x, pusheen_y
 
 
 class Particle(pygame.sprite.Sprite):
@@ -73,28 +69,15 @@ class Particle(pygame.sprite.Sprite):
         self.velocity[1] += self.gravity
         self.rect.x += self.velocity[0]
         self.rect.y += self.velocity[1]
-        if not is_inside(self.rect.x, self.rect.y):
+        if not self.rect.colliderect((0, 0, WIDTH, HEIGHT)):
             self.kill()
 
 
-def create_particles(position):
+def create_particles(pos):
     particle_count = 20
     numbers = range(-5, 6)
     for _ in range(particle_count):
-        Particle(position, random.choice(numbers), random.choice(numbers))
-
-
-def level_result(win):
-    image = pygame.transform.scale(load_image(['lose.png', 'win.png'][win]), (WIDTH, HEIGHT))
-    screen.blit(image, (0, 0))
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                terminate()
-            if event.type == pygame.KEYDOWN:
-                return 0
-        pygame.display.flip()
-        clock.tick(FPS)
+        Particle(pos, random.choice(numbers), random.choice(numbers))
 
 
 class MathNumber(pygame.sprite.Sprite):
@@ -110,7 +93,7 @@ class MathNumber(pygame.sprite.Sprite):
         self.rect.x = random.randrange(MINIGAMEX + self.rect.width,
                                        MINIGAMEX + MINIGAMEWIDTH - self.rect.width)
         self.rect.y = random.randrange(MINIGAMEY + self.rect.height,
-                                       MINIGAMEY + MINIGAMEHEIGHT - self.rect.height)
+                                       MINIGAMEY + MINIGAMEHEIGHT - self.rect.height - 20)
         while pygame.sprite.spritecollideany(self, math_sprites):
             self.rect = self.image.get_rect()
             self.rect.x = random.randrange(MINIGAMEX + self.rect.width,
@@ -118,7 +101,7 @@ class MathNumber(pygame.sprite.Sprite):
             self.rect.y = random.randrange(MINIGAMEY + self.rect.height,
                                            MINIGAMEY + MINIGAMEHEIGHT - self.rect.height)
         font = pygame.font.Font(None, 20)
-        text = font.render(str(number), True, (0, 0, 0))
+        text = font.render(str(number), True, (56, 13, 70))
         text_x = (self.rect.width - text.get_width()) // 2
         text_y = (self.rect.height - text.get_height()) // 2
         pygame.draw.circle(self.image, self.color, (self.radius, self.radius), self.radius)
@@ -134,13 +117,42 @@ class MathNumber(pygame.sprite.Sprite):
                 self.parent.lose = True
 
 
+class ICTNumber(pygame.sprite.Sprite):
+    def __init__(self, parent, i, number):
+        super().__init__()
+        self.parent = parent
+        self.number = number
+        self.width = 55
+        self.height = 120
+        self.color = (0, 255, 0)
+        self.image = pygame.Surface((self.width, self.height), pygame.SRCALPHA, 32)
+        self.rect = self.image.get_rect()
+        self.rect.x = MINIGAMEX + 10 + i * (self.width + 5)
+        self.rect.y = MINIGAMEY + (MINIGAMEHEIGHT - self.height) // 2
+        self.redraw(self.color)
+        ict_sprites.add(self)
+
+    def redraw(self, color):
+        font = pygame.font.Font(None, 20)
+        text = font.render(str(self.number), True, (0, 0, 0))
+        text_x = (self.rect.width - text.get_width()) // 2
+        text_y = (self.rect.height - text.get_height()) // 2
+        pygame.draw.rect(self.image, color, (0, 0, self.width, self.height))
+        self.image.blit(text, (text_x, text_y))
+
+    def update(self, event):
+        if self.rect.collidepoint(event.pos):
+            self.number ^= 1
+            self.redraw((0, 255, 0))
+
+
 class EnglishWord(pygame.sprite.Sprite):
     def __init__(self, parent, i, j, word, synonym):
         super().__init__()
         self.parent = parent
-        self.width = 100
         self.word = word
         self.synonym = synonym
+        self.width = 100
         self.height = 60
         self.color = random.choice(pastel_colors)
         self.image = pygame.Surface((self.width, self.height), pygame.SRCALPHA, 32)
@@ -152,7 +164,7 @@ class EnglishWord(pygame.sprite.Sprite):
 
     def redraw(self, color):
         font = pygame.font.Font(None, 20)
-        text = font.render(self.word, True, (0, 0, 0))
+        text = font.render(self.word, True, (56, 13, 70))
         text_x = (self.rect.width - text.get_width()) // 2
         text_y = (self.rect.height - text.get_height()) // 2
         pygame.draw.rect(self.image, color, (0, 0, self.width, self.height))
@@ -178,35 +190,6 @@ class EnglishWord(pygame.sprite.Sprite):
                 self.parent.prev = self
 
 
-class ICTNumber(pygame.sprite.Sprite):
-    def __init__(self, parent, i, number):
-        super().__init__()
-        self.width = 55
-        self.height = 120
-        self.number = number
-        self.parent = parent
-        self.color = (0, 255, 0)
-        self.image = pygame.Surface((self.width, self.height), pygame.SRCALPHA, 32)
-        self.rect = self.image.get_rect()
-        self.rect.x = MINIGAMEX + 10 + i * (self.width + 5)
-        self.rect.y = MINIGAMEY + (MINIGAMEHEIGHT - self.height) // 2
-        self.redraw(self.color)
-        ict_sprites.add(self)
-
-    def redraw(self, color):
-        font = pygame.font.Font(None, 20)
-        text = font.render(str(self.number), True, (0, 0, 0))
-        text_x = (self.rect.width - text.get_width()) // 2
-        text_y = (self.rect.height - text.get_height()) // 2
-        pygame.draw.rect(self.image, color, (0, 0, self.width, self.height))
-        self.image.blit(text, (text_x, text_y))
-
-    def update(self, event):
-        if self.rect.collidepoint(event.pos):
-            self.number ^= 1
-            self.redraw((0, 255, 0))
-
-
 class MathMiniGame:
     def __init__(self):
         self.primes = [x for x in range(2, 101) if self.is_prime(x)]
@@ -225,9 +208,14 @@ class MathMiniGame:
                 return False
         return True
 
-    def draw_background(self):
-        pygame.draw.rect(screen, pygame.Color(75, 20, 130),
+    def draw_background(self, screen):
+        pygame.draw.rect(screen, pygame.Color(148, 122, 162),
+                         (MINIGAMEX - 5, MINIGAMEY - 5, MINIGAMEWIDTH + 10, MINIGAMEHEIGHT + 10))
+        pygame.draw.rect(screen, pygame.Color(197, 167, 232),
                          (MINIGAMEX, MINIGAMEY, MINIGAMEWIDTH, MINIGAMEHEIGHT))
+        font = pygame.font.Font(None, 30)
+        text = font.render(f'Нажмите на все простые числа', True, (255, 255, 255))
+        screen.blit(text, (MINIGAMEX + (MINIGAMEWIDTH - text.get_width()) // 2, MINIGAMEY + 10))        
 
     def check_win(self):
         for sprite in math_sprites:
@@ -245,10 +233,13 @@ class ICTMiniGame:
         for i in range(8):
             ict_number = ICTNumber(self, i, 0)
 
-    def draw_background(self):
-        pygame.draw.rect(screen, pygame.Color(75, 20, 130), (MINIGAMEX, MINIGAMEY, MINIGAMEWIDTH, MINIGAMEHEIGHT))
-        font = pygame.font.Font(None, 50)
-        text = font.render(str(self.number), True, (255, 255, 255))
+    def draw_background(self, screen):
+        pygame.draw.rect(screen, pygame.Color(148, 122, 162),
+                         (MINIGAMEX - 5, MINIGAMEY - 5, MINIGAMEWIDTH + 10, MINIGAMEHEIGHT + 10))
+        pygame.draw.rect(screen, pygame.Color(197, 167, 232),
+                         (MINIGAMEX, MINIGAMEY, MINIGAMEWIDTH, MINIGAMEHEIGHT))
+        font = pygame.font.Font(None, 25)
+        text = font.render(f'Переведите число {self.number} в двоичную систему счисления', True, (255, 255, 255))
         screen.blit(text, (MINIGAMEX + (MINIGAMEWIDTH - text.get_width()) // 2, MINIGAMEY + 10))
 
     def check_win(self):
@@ -275,9 +266,14 @@ class EnglishMiniGame:
         self.prev = None
         self.lose = False
 
-    def draw_background(self):
-        pygame.draw.rect(screen, pygame.Color(75, 20, 130),
+    def draw_background(self, screen):
+        pygame.draw.rect(screen, pygame.Color(148, 122, 162),
+                         (MINIGAMEX - 5, MINIGAMEY - 5, MINIGAMEWIDTH + 10, MINIGAMEHEIGHT + 10))
+        pygame.draw.rect(screen, pygame.Color(197, 167, 232),
                          (MINIGAMEX, MINIGAMEY, MINIGAMEWIDTH, MINIGAMEHEIGHT))
+        font = pygame.font.Font(None, 30)
+        text = font.render(f'Соедините слова с их синонимами', True, (255, 255, 255))
+        screen.blit(text, (MINIGAMEX + (MINIGAMEWIDTH - text.get_width()) // 2, MINIGAMEY + 10))        
 
     def check_win(self):
         return not english_sprites
@@ -292,7 +288,6 @@ def mini_game(subject):
         game = MathMiniGame()
     elif subject == 'english':
         sprites = english_sprites
-        prev = None
         game = EnglishMiniGame()
     elif subject == 'ict':
         sprites = ict_sprites
@@ -301,45 +296,47 @@ def mini_game(subject):
         return True
     timer.start()
     while True:
+        if timer.end() < 0:
+            return False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
             if event.type == pygame.MOUSEBUTTONDOWN:
                 sprites.update(event)
-        game.draw_background()
+        game.draw_background(screen)
         sprites.draw(screen)
         timer.draw(screen)
         pygame.display.flip()
-        if timer.end() >= 0:
-            if game.check_win():
-                return True
-            if game.check_lose():
-                return False
-        else:
+        if game.check_win():
+            return True
+        if game.check_lose():
             return False
         clock.tick(FPS)
 
 
 class Pusheen(pygame.sprite.Sprite):
+    JUMPS = 20
+
     def __init__(self, pos_x, pos_y, image):
         super().__init__(all_sprites)
         name, extension = image.split('.')
         image_1 = pygame.transform.scale(load_image(f'{name}_1.{extension}'), (CELLWIDTH, CELLHEIGHT))
         image_2 = pygame.transform.scale(load_image(f'{name}_2.{extension}'), (CELLWIDTH, CELLHEIGHT))
         self.images = [image_1, image_2]
-        self.cur = 0
+        self.cur_image = 0
         self.redraw()
         self.rect = self.image.get_rect()
         self.rect.x, self.rect.y = CELLWIDTH * pos_x, CELLHEIGHT * pos_y
+        self.speed = 7
         self.direction = 1
         self.visited_sofas = list()
-        self.donut_count = 0
         self.jump_flag = False
-        self.can_move = True
         self.jump_count = 0
-        self.speed = 7
+        self.can_move = True
 
     def move(self):
+        if not self.can_move:
+            return False
         pressed = pygame.key.get_pressed()
         if pressed[pygame.K_RIGHT] or pressed[pygame.K_d]:
             if not self.collision('midright', tile_sprites):
@@ -355,12 +352,12 @@ class Pusheen(pygame.sprite.Sprite):
                 self.rect.x -= self.speed
         if (pressed[pygame.K_UP] or pressed[pygame.K_w] or pressed[pygame.K_SPACE]) and not self.jump_flag:
             self.jump_flag = True
-            self.jump_count = JUMPS
+            self.jump_count = self.JUMPS
         if self.jump_flag:
             if self.jump_count > 0 and self.collision('midtop', tile_sprites):
                 self.jump_count = 0
-            elif (self.jump_count > 0 and not self.collision('midtop', tile_sprites)
-                    or self.jump_count <= 0 and not self.collision('midbottom', tile_sprites)):
+            elif (self.jump_count > 0 and not self.collision('midtop', tile_sprites) or
+                  self.jump_count <= 0 and not self.collision('midbottom', tile_sprites)):
                 self.rect.y -= self.jump_count
                 self.jump_count -= 1
             else:
@@ -372,21 +369,24 @@ class Pusheen(pygame.sprite.Sprite):
             self.rect.x += self.speed
         if self.collision('midright', tile_sprites):
             self.rect.x -= self.speed
+        while self.floor_collision(tile_sprites):
+            self.rect.y -= 1
         sofa = pygame.sprite.spritecollideany(self, sofa_sprites)
         if self.collision('midbottom', sofa_sprites) and sofa not in self.visited_sofas:
             self.visited_sofas.append(sofa)
             self.images = [pygame.transform.flip(im, False, True) for im in self.images]
             self.can_move = False
-            pygame.time.set_timer(RECOVERFROMSOFA, 3000, True)
-        while self.floor_collision(tile_sprites):
-            self.rect.y -= 1
+            pygame.time.set_timer(RECOVERFROMSOFA, 2500, True)
         donut = pygame.sprite.spritecollideany(self, donut_sprites)
-        door = pygame.sprite.spritecollideany(self, door_sprites)
         if donut:
             timer.donuts += 1
             donut.kill()
-        if door:
+        if pygame.sprite.spritecollideany(self, door_sprites):
             return timer.end() >= 0
+
+    def redraw(self):
+        self.cur_image ^= 1
+        self.image = self.images[self.cur_image]
 
     def recover_from_sofa(self):
         self.can_move = True
@@ -394,25 +394,13 @@ class Pusheen(pygame.sprite.Sprite):
 
     def collision(self, point, group):
         return any(tile.rect.collidepoint(getattr(self.rect, point)) for tile in group)
-    
+
     def floor_collision(self, group):
         x, y = self.rect.midbottom
         return any(tile.rect.collidepoint(x, y - 1) for tile in group)
-        
-    def redraw(self):
-        self.cur ^= 1
-        self.image = self.images[self.cur]
 
-    def recover_from_sofa(self):
-        self.can_move = True
-        self.images = [pygame.transform.flip(im, False, True) for im in self.images]
-
-    def collision(self, point, group):
-        return any(tile.rect.collidepoint(getattr(self.rect, point)) for tile in group)
-
-    def redraw(self):
-        self.cur ^= 1
-        self.image = self.images[self.cur]
+    def check_fall(self):
+        return self.rect.y > HEIGHT * 0.9
 
 
 class Button(pygame.sprite.Sprite):
@@ -443,6 +431,16 @@ class Button(pygame.sprite.Sprite):
     def is_clicked(self):
         return self.clicked
 
+    def get_name(self):
+        return self.name
+
+
+class Tile(pygame.sprite.Sprite):
+    def __init__(self, tile_type, pos_x, pos_y):
+        super().__init__(all_sprites, *tile_groups[tile_type])
+        self.image = pygame.transform.scale(tile_images[tile_type], (CELLWIDTH, CELLHEIGHT))
+        self.rect = self.image.get_rect().move(CELLWIDTH * pos_x, CELLHEIGHT * pos_y)
+
 
 class InputField:
     def __init__(self, color, text_color, x, y, width, height):
@@ -464,19 +462,12 @@ class InputField:
         if event.key == pygame.K_BACKSPACE and self.text:
             self.text.pop()
         else:
-            self.text.append(event.unicode)
+            code = event.unicode
+            if code and ord(' ') <= ord(code) <= ord('~'):
+                self.text.append(code)
 
     def get_text(self):
         return ''.join(self.text)
-
-
-class Tile(pygame.sprite.Sprite):
-    def __init__(self, tile_type, pos_x, pos_y):
-        super().__init__(all_sprites)
-        self.image = pygame.transform.scale(tile_images[tile_type], (CELLWIDTH, CELLHEIGHT))
-        self.rect = self.image.get_rect().move(CELLWIDTH * pos_x, CELLHEIGHT * pos_y)
-        for group in tile_groups[tile_type]:
-            group.add(self)
 
 
 class Camera:
@@ -507,7 +498,7 @@ class MusicPlayer:
         else:
             pygame.mixer.music.pause()
         self.paused = not self.paused
-        
+
     def stop(self):
         pygame.mixer.music.stop()
 
@@ -534,7 +525,7 @@ class Database:
         fullname = os.path.join('data', name)
         if not os.path.isfile(fullname):
             print(f"База данных '{fullname}' не найден")
-            sys.exit()
+            terminate()
         return sqlite3.connect(fullname)
 
 
@@ -545,12 +536,12 @@ class Timer:
         self.donuts = 0
 
     def draw(self, screen):
-        pygame.draw.rect(screen, (255, 255, 255), (0, 0, 70, 30))
+        pygame.draw.rect(screen, (229, 204, 255), (0, 0, 80, 35))
         time = f'{timer.end() // 60}:{timer.end() % 60}'
         font = pygame.font.Font(None, 50)
-        text = font.render(time, True, (227, 207, 255))
-        screen.blit(text, (0, 0))
-        
+        text = font.render(time, True, (157, 135, 183))
+        screen.blit(text, (5, 5))
+
     def start(self):
         self.begin_time = datetime.now()
         self.donuts = 0
@@ -560,21 +551,30 @@ class Timer:
             return TIME - (datetime.now() - self.begin_time).seconds + self.donuts * DONUT
 
 
-def generate_level(level):
-    pusheen_x, pusheen_y = None, None
-    for y in range(len(level)):
-        for x in range(len(level[y])):
-            if level[y][x] == '#':
-                Tile('ground', x, y)
-            elif level[y][x] == '_':
-                Tile('sofa', x, y)
-            elif level[y][x] == '0':
-                Tile('donut', x, y)
-            elif level[y][x] == ']':
-                Tile('door', x, y)
-            elif level[y][x] == '@':
-                pusheen_x, pusheen_y = x, y
-    return pusheen_x, pusheen_y
+def terminate():
+    pygame.quit()
+    sys.exit()
+
+
+def get_pusheen_name():
+    pusheen_name = 'pusheen_gray.png'
+    for button in button_sprites:
+        if button.clicked and button.group == PUSHEENRADIOGROUP:
+            pusheen_name = button.get_name()[:-6] + button.get_name()[-4:]
+    return pusheen_name
+
+
+def level_result(win):
+    image = pygame.transform.scale(load_image(['lose.png', 'win.png'][win]), (WIDTH, HEIGHT))
+    screen.blit(image, (0, 0))
+    while True:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                terminate()
+            if event.type == pygame.KEYDOWN:
+                return
+        pygame.display.flip()
+        clock.tick(FPS)
 
 
 def start_screen():
@@ -584,7 +584,7 @@ def start_screen():
             if event.type == pygame.QUIT:
                 terminate()
             if event.type == pygame.KEYDOWN:
-                return 0
+                return
         screen.blit(start_image, (0, 0))
         pygame.display.flip()
         clock.tick(FPS)
@@ -612,8 +612,8 @@ def login_screen():
             if event.type == pygame.KEYDOWN:
                 input_field.update(event)
         screen.blit(login_image, (0, 0))
-        input_field.draw(screen)
         all_sprites.draw(screen)
+        input_field.draw(screen)
         pygame.display.flip()
         clock.tick(FPS)
 
@@ -623,14 +623,12 @@ def main_screen(cur_level):
     bg_image = pygame.transform.scale(load_image(cur_level + '.png'), (WIDTH, HEIGHT))
     level_map, level_width, level_height = load_level(cur_level + '.txt')
     pusheen_x, pusheen_y = generate_level(level_map)
-    pusheen_name = 'pusheen_gray.png'
-    for button in button_sprites:
-        if button.clicked and button.group == PUSHEENRADIOGROUP:
-            pusheen_name = button.name[:-6] + button.name[-4:]
-    pusheen = Pusheen(pusheen_x, pusheen_y, pusheen_name)
+    pusheen = Pusheen(pusheen_x, pusheen_y, get_pusheen_name())
     pygame.time.set_timer(UPDATEPUSHEEN, 200)
     timer.start()
     while True:
+        if timer.end() < 0 or pusheen.check_fall():
+            return False
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
@@ -646,15 +644,11 @@ def main_screen(cur_level):
         camera.update(pusheen)
         for sprite in all_sprites:
             camera.apply(sprite)
-        if pusheen.can_move:
-            result = pusheen.move()
-            if timer.end() >= 0:
-                if result:
-                    mg_result = mini_game(cur_level)
-                    level_result(mg_result)
-                    return mg_result
-            else:
-                return False
+        if pusheen.move():
+            minigame_result = mini_game(cur_level)
+            pygame.time.delay(1000)
+            level_result(minigame_result)
+            return minigame_result
         screen.blit(bg_image, (0, 0))
         all_sprites.draw(screen)
         timer.draw(screen)
@@ -665,12 +659,14 @@ def main_screen(cur_level):
 def final_screen():
     player.stop()
     all_sprites.empty()
-    final_image = pygame.transform.scale(load_image('final_screen.png'), (WIDTH, HEIGHT))
+    final_image = pygame.transform.scale(load_image(f'final_screen_{get_pusheen_name()}'), (WIDTH, HEIGHT))
     pygame.time.set_timer(UPDATESTARS, 100)
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 terminate()
+            if event.type == pygame.KEYDOWN:
+                return
             if event.type == UPDATESTARS:
                 create_particles((random.randint(0, WIDTH), random.randint(0, 3 * HEIGHT // 4)))
         all_sprites.update()
@@ -680,31 +676,34 @@ def final_screen():
         clock.tick(FPS)
 
 
-JUMPS = 20
-FPS = 60
-DONUT = 5
-CELLWIDTH = 200
-CELLHEIGHT = 130
+pygame.init()
+pygame.display.set_caption('Pusheen game')
+
 PUSHEENRADIOGROUP = 1
-LEVELCOUNT = 5
+
 UPDATESTARS = pygame.USEREVENT + 1
 UPDATEPUSHEEN = pygame.USEREVENT + 2
 RECOVERFROMSOFA = pygame.USEREVENT + 3
-pygame.init()
+
+CELLWIDTH = 200
+CELLHEIGHT = 130
 info = pygame.display.Info()
-SIZE = WIDTH, HEIGHT = info.current_w - 200, 5 * CELLHEIGHT
-MINIGAMEWIDTH = 500
-MINIGAMEHEIGHT = 500
+SIZE = WIDTH, HEIGHT = info.current_w - 200, CELLHEIGHT * 5
+MINIGAMEWIDTH, MINIGAMEHEIGHT = 500, 500
 MINIGAMEX = (WIDTH - MINIGAMEWIDTH) // 2
 MINIGAMEY = (HEIGHT - MINIGAMEHEIGHT) // 2
-TIME = 30
 screen = pygame.display.set_mode(SIZE)
+
 clock = pygame.time.Clock()
+FPS = 60
+timer = Timer()
+TIME = 30
+DONUT = 5
 player = MusicPlayer()
+db = Database()
+camera = Camera()
+
 all_sprites = pygame.sprite.Group()
-english_sprites = pygame.sprite.Group()
-math_sprites = pygame.sprite.Group()
-ict_sprites = pygame.sprite.Group()
 button_sprites = pygame.sprite.Group()
 tile_images = {
     'sofa': load_image('sofa.png'),
@@ -712,20 +711,22 @@ tile_images = {
     'donut': load_image('donut.png'),
     'door': load_image('door.png')
 }
-camera = Camera()
-db = Database()
-timer = Timer()
+
+LEVELCOUNT = 5
+LEVELS = ['english', 'corridor0', 'maths', 'corridor1', 'ict']
 
 start_screen()
 login = login_screen()
-level = db.get_current_level(login)
-LEVELS = ['english', 'corridor0', 'maths', 'corridor1', 'ict']
+level = db.get_current_level(login) % 5
 player.play()
 while level < LEVELCOUNT:
     tile_sprites = pygame.sprite.Group()
     sofa_sprites = pygame.sprite.Group()
     donut_sprites = pygame.sprite.Group()
     door_sprites = pygame.sprite.Group()
+    english_sprites = pygame.sprite.Group()
+    math_sprites = pygame.sprite.Group()
+    ict_sprites = pygame.sprite.Group()    
     tile_groups = {
         'sofa': [sofa_sprites, tile_sprites],
         'ground': [tile_sprites],
@@ -736,6 +737,6 @@ while level < LEVELCOUNT:
         level += 1
         db.write(login, level)
     else:
-        level_result(0)
+        level_result(False)
 final_screen()
 terminate()
