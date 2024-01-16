@@ -7,8 +7,6 @@ from datetime import datetime, timedelta
 
 import pygame
 
-# from crop_pusheen import crop_pusheen
-
 
 pastel_colors = [(233, 173, 216), (227, 207, 255), (164, 235, 251),
                  (239, 179, 191), (246, 174, 9), (0, 255, 255), (187, 255, 205)]
@@ -678,6 +676,8 @@ def final_screen():
 
 pygame.init()
 pygame.display.set_caption('Pusheen game')
+image = load_image('icon.png')
+pygame.display.set_icon(image)
 
 PUSHEENRADIOGROUP = 1
 
